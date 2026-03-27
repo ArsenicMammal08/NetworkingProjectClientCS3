@@ -7,6 +7,9 @@
 #include <pthread.h>
 #include <sys/mman.h>
 #include <arpa/inet.h>
+#include "raylib.h"
+#define RAYGUI_IMPLEMENTATION
+#include "raygui.h"
 #define PORT 2000
 #define EXIT -1
 #define MESSAGE 1
