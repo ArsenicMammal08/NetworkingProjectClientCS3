@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 4.1)
-project(template C)
+project(NetworkingProjectClientCS3 C)
 
 set(CMAKE_C_STANDARD 11)
 
-add_executable(template main.c)
+add_executable(NetworkingProjectClientCS3 main.c)
