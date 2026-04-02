@@ -5,18 +5,28 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <pthread.h>
-#include <sys/mman.h>
 #include <arpa/inet.h>
-#include "raylib.h"
-#define RAYGUI_IMPLEMENTATION
-#include "raygui.h"
-#define PORT 2000
-#define EXIT -1
-#define MESSAGE 1
-#define SNYC 0
-#define MessageBufferSize 1024
-#define IP "127.0.0.1"
 
+#include <SDL2/SDL.h>
+
+#define NK_INCLUDE_FIXED_TYPES
+#define NK_INCLUDE_STANDARD_IO
+#define NK_INCLUDE_DEFAULT_ALLOCATOR
+#define NK_INCLUDE_VERTEX_BUFFER_OUTPUT
+#define NK_INCLUDE_FONT_BAKING
+#define NK_INCLUDE_DEFAULT_FONT
+#define NK_IMPLEMENTATION
+#define NK_SDL_RENDERER_IMPLEMENTATION
+#include "nuklear.h"
+#include "nuklear_sdl_renderer.h"
+
+#define PORT             2000
+#define EXIT        -1
+#define MESSAGE          1
+#define SNYC             0
+#define IP               "127.0.0.1"
+#define WINDOW_W 700
+#define WINDOW_H 600
 struct ClientThreadArgs {
     int SocketFD;
     struct messageNode** phead;
@@ -38,27 +48,11 @@ struct request {
     int RequestType;
     char Message[1024];
 };
-void sendmessage(int socketFD) {
+void sendmessage(int socketFD, char* userName, char* Message){
     struct request request;
     request.RequestType = MESSAGE;
-    request.Message[0] = 'h';
-    request.Message[1] = 'e';
-    request.Message[2] = 'l';
-    request.Message[3] = 'l';
-    request.Message[4] = 'o';
-    request.Message[5] = ' ';
-    request.Message[6] = 'w';
-    request.Message[7] = 'o';
-    request.Message[8] = 'r';
-    request.Message[9] = 'l';
-    request.Message[10] = 'd';
-    request.Message[11] = '\0';
-    request.userName[0] = 'd';
-    request.userName[1] = 'e';
-    request.userName[2] = 'r';
-    request.userName[3] = 'e';
-    request.userName[4] = 'k';
-    request.userName[5] = '\0';
+    strncpy(request.userName, userName, sizeof(request.userName) - 1);
+    strncpy(request.Message,  Message,  sizeof(request.Message) - 1);
     send(socketFD, &request, sizeof(request),  0);
 }
 void disconnect(int socketFD) {
@@ -112,25 +106,48 @@ void printlist(struct messageNode** phead) {
     }
 }
 void window(int socketFD, struct messageNode** ptail, struct messageNode** phead) {
-    InitWindow(800, 1000, "TextBox example");
+    SDL_Init(SDL_INIT_VIDEO);
 
-    char text[64] = "";
-    bool editMode = false;
+    // 2. Create the window
+    SDL_Window* win = SDL_CreateWindow(
+        "My Window",              // title
+        SDL_WINDOWPOS_CENTERED,   // x position
+        SDL_WINDOWPOS_CENTERED,   // y position
+        700, 600,                 // width, height
+        SDL_WINDOW_SHOWN          // flags
+    );
 
-    while (!WindowShouldClose()) {
-        BeginDrawing();
-        ClearBackground(RAYWHITE);
+    // 3. Create the renderer (does the actual drawing)
+    SDL_Renderer* renderer = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED);
 
-        // Click to activate, click away to deactivate
-        if (GuiTextBox((Rectangle){ 100, 100, 200, 30 }, text, 64, editMode))
-            editMode = !editMode;
+    // 4. Init Nuklear on top of SDL
+    struct nk_context* ctx = nk_sdl_init(win, renderer);
 
+    // 5. Main loop
+    int running = 1;
+    SDL_Event evt;
+    while (running) {
+        // handle input
+        nk_input_begin(ctx);
+        while (SDL_PollEvent(&evt)) {
+            if (evt.type == SDL_QUIT) running = 0;
+            nk_sdl_handle_event(&evt);
+        }
+        nk_input_end(ctx);
 
-        EndDrawing();
+        // draw your UI here with nk_begin / nk_end etc.
+
+        // render
+        SDL_RenderClear(renderer);
+        nk_sdl_render(NK_ANTI_ALIASING_ON);
+        SDL_RenderPresent(renderer);
     }
 
-    CloseWindow();
-
+    // 6. Cleanup
+    nk_sdl_shutdown();
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(win);
+    SDL_Quit();
 }
 int main(void) {
     int socketFD = socket(AF_INET, SOCK_STREAM, 0);
@@ -150,6 +167,4 @@ int main(void) {
     disconnect(socketFD);
     */
     window(socketFD, &phead, &ptail);
-
-
 }
