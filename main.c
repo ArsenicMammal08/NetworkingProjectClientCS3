@@ -164,20 +164,12 @@ void screen_name(struct nk_context *ctx, AppState *s, int win_w, int win_h) {
     nk_end(ctx);
 }
 void submit_message(AppState* s) {
-    if (s->history_count >= MaxHistory) {
-        return;
-    }
-    ChatLine *line = &s->history[s->history_count++];
-    s->InputBuff[s->input_len] = '\0';
-    snprintf(line->line, MaxLine, "%s: %s", s->NameBuff, s->InputBuff);
-    line->is_mine = 1;
-
     s->input_len = 0;
     s->InputBuff[0] = '\0';
 
     s->scroll_to_bottom = 1;
 }
-void screen_chat(struct nk_context *ctx, AppState *s, int win_w, int win_h, int socketFD, struct messageNode** phead, struct messageNode** ptail) {
+void screen_chat(struct nk_context *ctx, AppState *s, int win_w, int win_h, int socketFD, struct messageNode** phead, struct messageNode** ptail, pthread_mutex_t *SocketMutex) {
     if (nk_begin(ctx, "Chat Screen", nk_rect(0,0, win_w, win_h), NK_WINDOW_NO_SCROLLBAR) ) {
         float input_height = 50;
         float history_height = win_h - input_height - 50;
@@ -207,8 +199,11 @@ void screen_chat(struct nk_context *ctx, AppState *s, int win_w, int win_h, int 
         int send_clicked = nk_button_label(ctx, "Send");
         if ((result & NK_EDIT_COMMITED) || send_clicked) {
             if (s->input_len > 0) {
+                pthread_mutex_lock(SocketMutex);
+                s->InputBuff[s->input_len] = '\0';
                 sendmessage(socketFD, s->NameBuff, s->InputBuff);
                 submit_message(s);
+                pthread_mutex_unlock(SocketMutex);
             }
         }
         nk_layout_row_end(ctx);
@@ -220,7 +215,7 @@ void screen_chat(struct nk_context *ctx, AppState *s, int win_w, int win_h, int 
 
 
 
-void window(int socketFD, struct messageNode** ptail, struct messageNode** phead) {
+void window(int socketFD, struct messageNode** ptail, struct messageNode** phead, pthread_mutex_t* SocketMutex) {
     SDL_Init(SDL_INIT_VIDEO);
 
     // 2. Create the window
@@ -272,7 +267,7 @@ void window(int socketFD, struct messageNode** ptail, struct messageNode** phead
             screen_name(ctx, &state, WINDOW_W, WINDOW_H);
         }
         if (state.Screen == SCREEN_CHAT) {
-            screen_chat(ctx, &state, WINDOW_W, WINDOW_H, socketFD, phead, ptail);
+            screen_chat(ctx, &state, WINDOW_W, WINDOW_H, socketFD, phead, ptail, SocketMutex);
         }
 
         // Render
@@ -291,7 +286,13 @@ void window(int socketFD, struct messageNode** ptail, struct messageNode** phead
 }
 void* SyncThread(void* args) {
     struct SyncThreadStruct* SyncArgs = (struct SyncThreadStruct*)args;
-    pthread_mutex_lock()
+    while (1) {
+        pthread_mutex_lock(SyncArgs->SocketMutex);
+        syncdata(SyncArgs->socketFD, SyncArgs->ptail, SyncArgs->phead);
+        pthread_mutex_unlock(SyncArgs->SocketMutex);
+        sleep(1);
+        pthread_testcancel();
+    }
 }
 int main(void) {
     int socketFD = socket(AF_INET, SOCK_STREAM, 0);
@@ -307,10 +308,18 @@ int main(void) {
 
     struct messageNode* phead = NULL;
     struct messageNode* ptail = NULL;
+
+
+    struct SyncThreadStruct* SyncArgs = (struct SyncThreadStruct*)malloc(sizeof(struct SyncThreadStruct));
+    SyncArgs->SocketMutex = &SocketMutex;
+    SyncArgs->socketFD = socketFD;
+    SyncArgs->phead = &phead;
+    SyncArgs->ptail = &ptail;
+    pthread_t pSyncThread;
     while (connect(socketFD, (struct sockaddr*)&ServerAddr, sizeof(ServerAddr)));
+    pthread_create(&pSyncThread, NULL, SyncThread, SyncArgs);
 
-    syncdata(socketFD, &ptail, &phead);
-
-    window(socketFD, &ptail, &phead);
+    window(socketFD, &ptail, &phead, &SocketMutex);
+    pthread_cancel(pSyncThread);
     disconnect(socketFD);
 }
